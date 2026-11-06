@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ԱԲ ժեստերի ճանաչում</title>
+<style>
+body{font-family:system-ui,Arial,sans-serif;background:#111827;color:#f9fafb;text-align:center;margin:0;padding:24px} main{max-width:780px;margin:auto} h1{color:#7dd3fc} button{font-size:17px;border:0;border-radius:10px;background:#38bdf8;color:#082f49;padding:12px 18px;cursor:pointer;margin:5px}button:disabled{opacity:.5;cursor:default}.view{position:relative;width:100%;max-width:680px;margin:auto}video{width:100%;display:block;border-radius:16px;transform:scaleX(-1);background:#050505}canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1);pointer-events:none}#status{min-height:2em;color:#fcd34d}#result{font-size:24px;color:#86efac}small{color:#9ca3af}
+</style>
+</head>
+<body><main><h1>🤖 Ձեռքի ժեստերի ճանաչում</h1><p>Տեսախցիկը և ԱԲ դասակարգումը աշխատում են ձեր բրաուզերում։</p>
+<button id="start">Միացնել տեսախցիկը</button><button id="retry">Կրկին բեռնել ԱԲ-ն</button>
+<p id="status">Պատրաստվում է ԱԲ մոդելի բեռնումը...</p>
+<div class="view"><video id="video" autoplay muted playsinline></video><canvas id="canvas"></canvas></div>
+<p id="result">Ժեստ՝ —</p><p id="confidence"></p><small>GitHub Pages-ի համար. ԱԲ գրադարանը և մոդելը բեռնվում են հենց այս կայքից, արտաքին CDN անհրաժեշտ չէ դիտարկման պահին։</small>
+</main><script type="module">
+const $=id=>document.getElementById(id);
+const video=$('video'),canvas=$('canvas'),ctx=canvas.getContext('2d');
+let recognizer=null,visionModule=null,stream=null,lastVideoTime=-1,draw=null;
+const names={Thumb_Up:'👍 Բութ մատը վեր',Thumb_Down:'👎 Բութ մատը վար',Open_Palm:'🖐️ Բաց ափ',Closed_Fist:'✊ Փակ բռունցք',Victory:'✌️ Հաղթանակ',Pointing_Up:'☝️ Ցուցամատը վեր',ILoveYou:'🤟 Ես քեզ սիրում եմ',None:'Չճանաչված ժեստ'};
+function status(s){$('status').textContent=s}
+async function loadAI(){
+  $('retry').disabled=true;status('Բեռնվում է ԱԲ մոդելը...');
+  try{
+    visionModule=await import('./assets/vision_bundle.mjs');
+    const vision=await visionModule.FilesetResolver.forVisionTasks(new URL('./assets/wasm',location.href).href);
+    recognizer=await visionModule.GestureRecognizer.createFromOptions(vision,{
+      baseOptions:{modelAssetPath:new URL('./assets/gesture_recognizer.task',location.href).href,delegate:'CPU'},
+      runningMode:'VIDEO',numHands:2
+    });
+    draw=new visionModule.DrawingUtils(ctx);
+    status('✅ ԱԲ մոդելը պատրաստ է։ Ցույց տուր ժեստ։');
+  }catch(e){console.error(e);status('❌ ԱԲ-ն չբեռնվեց՝ '+(e?.message||String(e))+'։ Ստուգիր GitHub Actions-ի հրապարակումը։');}
+  finally{$('retry').disabled=false}
+}
+async function startCamera(){
+  try{
+    if(!navigator.mediaDevices?.getUserMedia)throw Error('Այս էջը պահանջում է HTTPS հասցե։');
+    stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    video.srcObject=stream;await video.play();
+    canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+    $('start').textContent='Տեսախցիկը միացված է';$('start').disabled=true;
+    if(!recognizer)status('Տեսախցիկը միացված է։ Սպասում ենք ԱԲ մոդելին...');
+    requestAnimationFrame(loop);
+  }catch(e){status('❌ Տեսախցիկը չմիացավ՝ '+(e?.message||String(e)));}
+}
+function loop(){
+  if(!stream)return;
+  if(recognizer && video.readyState>=2 && video.currentTime!==lastVideoTime){
+    lastVideoTime=video.currentTime;
+    try{
+      const r=recognizer.recognizeForVideo(video,performance.now());
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      for(const points of (r.landmarks||[])){
+        draw.drawConnectors(points,visionModule.GestureRecognizer.HAND_CONNECTIONS,{color:'#22c55e',lineWidth:3});
+        draw.drawLandmarks(points,{color:'#f43f5e',radius:3});
+      }
+      const gesture=r.gestures?.[0]?.[0];
+      $('result').textContent=gesture?'Ժեստ՝ '+(names[gesture.categoryName]||gesture.categoryName):'Ձեռք չի հայտնաբերվել';
+      $('confidence').textContent=gesture?'Վստահություն՝ '+(gesture.score*100).toFixed(1)+'%':'';
+    }catch(e){status('❌ Ճանաչման սխալ՝ '+e.message);recognizer=null;}
+  }
+  requestAnimationFrame(loop);
+}
+$('start').addEventListener('click',startCamera);
+$('retry').addEventListener('click',loadAI);
+loadAI();
+</script></body></html>
