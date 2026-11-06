@@ -21,8 +21,9 @@
 <body>
   <h1>🤖 AI Hand Gesture Recognition</h1>
   <p>Ձեռքի ժեստերի ճանաչում իրական ժամանակում</p>
-  <button id="startButton" disabled>Միացնել տեսախցիկը</button>
-  <p id="status">Բեռնվում է ԱԲ մոդելը...</p>
+  <button id="startButton">Միացնել տեսախցիկը</button>
+  <p id="status">Սեղմիր կոճակը՝ տեսախցիկը միացնելու համար։ ԱԲ մոդելը բեռնվում է առանձին։</p>
+  <button id="retryButton" type="button" hidden>Կրկին բեռնել ԱԲ մոդելը</button>
   <div class="camera">
     <video id="webcam" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
@@ -32,8 +33,7 @@
   <p class="hint">Օգտագործիր HTTPS հասցե (օրինակ՝ GitHub Pages) և թույլատրիր տեսախցիկի օգտագործումը։</p>
 
   <script type="module">
-    import { GestureRecognizer, FilesetResolver, DrawingUtils } from
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22';
+    let GestureRecognizer, FilesetResolver, DrawingUtils;
 
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('canvas');
@@ -42,6 +42,7 @@
     const confidenceText = document.getElementById('confidence');
     const statusText = document.getElementById('status');
     const startButton = document.getElementById('startButton');
+    const retryButton = document.getElementById('retryButton');
     const gestureNames = {
       Thumb_Up: '👍 Բութ մատը վեր',
       Thumb_Down: '👎 Բութ մատը վար',
@@ -57,31 +58,42 @@
     let running = false;
     let lastVideoTime = -1;
     let lastTimestamp = -1;
+    let loading = false;
+    const timeout = (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('Բեռնման ժամանակը սպառվեց (' + Math.round(ms / 1000) + ' վրկ)')), ms))]);
 
     async function initializeAI() {
+      if (loading) return;
+      loading = true;
+      retryButton.hidden = true;
+      statusText.textContent = '⏳ Բեռնվում է ԱԲ մոդելը։ Տեսախցիկը կարող ես միացնել արդեն հիմա։';
       try {
-        const vision = await FilesetResolver.forVisionTasks(
+        // Dynamic import lets the camera work even if the CDN is blocked.
+        const mod = await timeout(import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22'), 20000);
+        ({ GestureRecognizer, FilesetResolver, DrawingUtils } = mod);
+        const vision = await timeout(FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
-        );
-        recognizer = await GestureRecognizer.createFromOptions(vision, {
+        ), 20000);
+        recognizer = await timeout(GestureRecognizer.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',
             delegate: 'CPU'
           },
           runningMode: 'VIDEO',
           numHands: 2
-        });
-        statusText.textContent = '✅ ԱԲ մոդելը պատրաստ է';
-        startButton.disabled = false;
+        }), 45000);
+        statusText.textContent = '✅ ԱԲ մոդելը պատրաստ է' + (running ? '․ ճանաչումը սկսված է։' : '․ միացրու տեսախցիկը։');
+        if (running) requestAnimationFrame(predict);
       } catch (error) {
-        statusText.textContent = '❌ ԱԲ մոդելը չբեռնվեց. ստուգիր ինտերնետային կապը';
-        console.error(error);
+        statusText.textContent = '❌ ԱԲ մոդելը չբեռնվեց․ ' + error.message + '։ Եթե աշխատանքային ցանցում ես, հնարավոր է՝ CDN-ը կամ Google Storage-ը արգելափակված են։';
+        retryButton.hidden = false;
+        console.error('AI load error:', error);
+      } finally {
+        loading = false;
       }
     }
 
     async function startCamera() {
       try {
-        if (!recognizer) return;
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera API unavailable: HTTPS required');
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         video.srcObject = stream;
@@ -90,10 +102,10 @@
         canvas.height = video.videoHeight;
         running = true;
         startButton.hidden = true;
-        statusText.textContent = '🟢 Տեսախցիկն աշխատում է';
-        requestAnimationFrame(predict);
+        statusText.textContent = recognizer ? '🟢 Տեսախցիկն աշխատում է, ԱԲ ճանաչումը միացված է' : '🟢 Տեսախցիկն աշխատում է, ԱԲ մոդելը դեռ բեռնվում է';
+        if (recognizer) requestAnimationFrame(predict);
       } catch (error) {
-        statusText.textContent = '❌ Տեսախցիկը հասանելի չէ. ստուգիր թույլտվությունները և HTTPS-ը';
+        statusText.textContent = '❌ Տեսախցիկը հասանելի չէ․ ' + error.name + ': ' + error.message;
         console.error(error);
       }
     }
@@ -131,6 +143,7 @@
     }
 
     startButton.addEventListener('click', startCamera);
+    retryButton.addEventListener('click', initializeAI);
     initializeAI();
   </script>
 </body>
