@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save --no-audit --no-fund @mediapipe/tasks-vision@0.10.22
+          npm install --no-save --no-audit --no-fund @mediapipe/tasks-vision@0.10.21
           mkdir -p site/assets
           cp index.html site/index.html
           cp node_modules/@mediapipe/tasks-vision/vision_bundle.mjs site/assets/vision_bundle.mjs
