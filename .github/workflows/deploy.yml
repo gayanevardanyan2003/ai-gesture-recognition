@@ -1,1 +1,47 @@
-
+name: Publish gesture AI website
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download MediaPipe library and model on GitHub runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund @mediapipe/tasks-vision@0.10.22
+          mkdir -p site/assets
+          cp index.html site/index.html
+          cp node_modules/@mediapipe/tasks-vision/vision_bundle.mjs site/assets/vision_bundle.mjs
+          cp -R node_modules/@mediapipe/tasks-vision/wasm site/assets/wasm
+          curl --fail --location --retry 3 \
+            'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task' \
+            -o site/assets/gesture_recognizer.task
+          touch site/.nojekyll
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload static website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
